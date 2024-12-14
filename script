@@ -1,0 +1,103 @@
+import threading
+import queue
+import time
+import random
+import logging
+from functools import wraps
+from collections import defaultdict
+
+# Logger setup
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
+logger = logging.getLogger("ComplexScript")
+
+# Decorator to measure execution time
+def timer(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        start_time = time.time()
+        result = func(*args, **kwargs)
+        elapsed_time = time.time() - start_time
+        logger.info(f"Function {func.__name__!r} executed in {elapsed_time:.4f} seconds.")
+        return result
+    return wrapper
+
+# Custom Exception for Task Management
+class TaskError(Exception):
+    pass
+
+# Task Manager
+class TaskManager:
+    def __init__(self, max_workers=5):
+        self.tasks = queue.Queue()
+        self.results = queue.Queue()
+        self.max_workers = max_workers
+        self.threads = []
+
+    def add_task(self, task, *args, **kwargs):
+        self.tasks.put((task, args, kwargs))
+
+    def worker(self):
+        while not self.tasks.empty():
+            try:
+                task, args, kwargs = self.tasks.get()
+                result = task(*args, **kwargs)
+                self.results.put(result)
+                logger.info(f"Task {task.__name__} completed with result: {result}")
+            except Exception as e:
+                logger.error(f"Task failed: {e}")
+
+    @timer
+    def run(self):
+        for _ in range(self.max_workers):
+            thread = threading.Thread(target=self.worker)
+            self.threads.append(thread)
+            thread.start()
+
+        for thread in self.threads:
+            thread.join()
+
+    def get_results(self):
+        results = []
+        while not self.results.empty():
+            results.append(self.results.get())
+        return results
+
+# Sample Data Generators
+@timer
+def generate_data(size=100):
+    data = [random.randint(1, 100) for _ in range(size)]
+    logger.info(f"Generated data: {data}")
+    return data
+
+@timer
+def analyze_data(data):
+    time.sleep(random.uniform(0.1, 0.5))  # Simulate delay
+    stats = {
+        "mean": sum(data) / len(data),
+        "max": max(data),
+        "min": min(data),
+        "count": len(data),
+    }
+    logger.info(f"Data analysis results: {stats}")
+    return stats
+
+# Simulation Environment
+class Simulation:
+    def __init__(self, num_cycles=10, data_size=50):
+        self.num_cycles = num_cycles
+        self.data_size = data_size
+        self.task_manager = TaskManager(max_workers=4)
+
+    def simulate(self):
+        for _ in range(self.num_cycles):
+            data = generate_data(self.data_size)
+            self.task_manager.add_task(analyze_data, data)
+
+        self.task_manager.run()
+        results = self.task_manager.get_results()
+        logger.info(f"Simulation complete with results: {results}")
+
+
+if __name__ == "__main__":
+    sim = Simulation(num_cycles=20, data_size=100)
+    sim.simulate()
